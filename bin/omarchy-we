@@ -13,7 +13,7 @@
 #   omarchy-we current [--json]     Show the current wallpaper (--json for machine output)
 #   omarchy-we list [--json]        List wallpapers (--json emits id/title/type/preview)
 #   omarchy-we stop                 Stop the live wallpaper and restore a normal Omarchy background
-  omarchy-we resume               Bring back the last live wallpaper after a stop
+#   omarchy-we resume               Bring back the last live wallpaper after a stop
 #   omarchy-we screen [<monitor> <query>|clear]  Per-monitor override (no args: show mapping)
 #   omarchy-we ipc <verb>           Stable interface for bars/plugins: version|picker|entries|current|set|stop
 #
