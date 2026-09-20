@@ -286,7 +286,18 @@ for m in ms:
 # Stop only our own wallpaper instances. Matching the full invocation (binary
 # + --screen-root) rather than the bare binary name avoids killing unrelated
 # processes that merely mention "linux-wallpaperengine" in their command line.
-stop_we() { pkill -f "${WE_BIN}[^ ]* .*--screen-root" 2>/dev/null || true; }
+# linux-wallpaperengine's main loop blocks in wl_display_dispatch and stops
+# getting frame callbacks once another layer covers it, so SIGTERM alone can
+# leave a zombie renderer stacked underneath, still burning GPU. Escalate.
+stop_we() {
+  local pat="${WE_BIN}[^ ]* .*--screen-root" i
+  pkill -TERM -f "$pat" 2>/dev/null || return 0
+  for i in 1 2 3 4 5; do
+    pgrep -f "$pat" >/dev/null 2>&1 || return 0
+    sleep 0.2
+  done
+  pkill -KILL -f "$pat" 2>/dev/null || true
+}
 
 launch_we() {
   local id="$1"
