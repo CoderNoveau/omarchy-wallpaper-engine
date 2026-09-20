@@ -68,6 +68,9 @@ omarchy-we menu           # native Omarchy grid picker (falls back to walker/fuz
 omarchy-we next / prev / random
 omarchy-we current        # what's set, and whether it's running
 omarchy-we stop           # stop the live wallpaper, restore a normal background
+omarchy-we screen                    # per-monitor mapping (which monitor shows what)
+omarchy-we screen DP-3 "rain"        # pin one monitor to a wallpaper; others follow `set`
+omarchy-we screen DP-3 clear         # unpin it
 ```
 
 Your choice is saved to `~/.local/state/omarchy-we/current` and re-applied on every login.
@@ -140,7 +143,7 @@ Fields: `id` = Steam Workshop id · `type` = `scene` \| `video` \| `web` · `pre
 - **Scene** and **video** wallpapers work. **Web** (HTML/JS) wallpapers may not render — `linux-wallpaperengine`'s web support is limited.
 - Live wallpapers use the GPU continuously. On a laptop/iGPU, cap the frame rate (`OMARCHY_WE_FPS=30`) or `omarchy-we stop` on battery.
 - Audio is muted (`--silent`).
-- Multi-monitor: the **same** wallpaper renders on every active monitor.
+- Multi-monitor: every monitor shows the wallpaper chosen with `set`, unless pinned with `omarchy-we screen <monitor> <wallpaper>` (monitor names as in `hyprctl monitors`). Pins persist in `~/.local/state/omarchy-we/screens` and survive theme changes and logins.
 
 ## Coexisting with a custom bar / shell
 
