@@ -13,6 +13,7 @@
 #   omarchy-we current [--json]     Show the current wallpaper (--json for machine output)
 #   omarchy-we list [--json]        List wallpapers (--json emits id/title/type/preview)
 #   omarchy-we stop                 Stop the live wallpaper and restore a normal Omarchy background
+  omarchy-we resume               Bring back the last live wallpaper after a stop
 #   omarchy-we screen [<monitor> <query>|clear]  Per-monitor override (no args: show mapping)
 #   omarchy-we ipc <verb>           Stable interface for bars/plugins: version|picker|entries|current|set|stop
 #
@@ -23,6 +24,7 @@ WE_BIN="linux-wallpaperengine"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-we"
 STATE_FILE="$STATE_DIR/current"
 SCREENS_FILE="$STATE_DIR/screens"   # optional per-monitor overrides
+STOPPED_FILE="$STATE_DIR/stopped"   # present after `stop`: autostart/hooks must not relaunch
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-we"
 PREVIEW_DIR="$CACHE_DIR/previews"       # symlinks: "<label>.<ext>" -> wallpaper preview
 MAP_FILE="$CACHE_DIR/map.tsv"           # "<label>\t<workshop-id>"
@@ -388,6 +390,7 @@ launch_we() {
   local screens; mapfile -t screens < <(detect_screens)
   [[ ${#screens[@]} -gt 0 ]] || die "could not detect a monitor (is Hyprland running?)"
 
+  rm -f "$STOPPED_FILE"
   stop_we; sleep 0.3
   clear_omarchy_background
 
@@ -429,7 +432,13 @@ cmd_set() {
   apply_id "$id" "$SCOPE_ARG" "$SCOPE_MON"
 }
 
+# Used by autostart and the theme-set hook: a no-op while stopped, so a
+# theme change or login does not resurrect a wallpaper the user turned off.
 cmd_launch() {
+  if [[ -e "$STOPPED_FILE" ]]; then
+    echo "Live wallpaper is stopped (omarchy-we resume, or pick a wallpaper, to bring it back)."
+    return 0
+  fi
   local id; id="$(cat "$STATE_FILE" 2>/dev/null || true)"
   if [[ -z "$id" ]]; then
     # No saved choice yet: pick the first wallpaper.
@@ -536,8 +545,11 @@ cmd_current() {
   true
 }
 
+cmd_resume() { rm -f "$STOPPED_FILE"; cmd_launch; }
+
 cmd_stop() {
   stop_we
+  mkdir -p "$STATE_DIR"; touch "$STOPPED_FILE"
   # Restore a normal, opaque Omarchy background from the current theme.
   local bg
   bg="$(find -L "$HOME/.local/state/omarchy/current/theme/backgrounds" -maxdepth 1 -type f \
@@ -580,6 +592,7 @@ case "${1:-}" in
   launch)               cmd_launch;;
   current)              shift; [[ "${1:-}" == "--json" ]] && current_json || cmd_current;;
   stop)                 cmd_stop;;
+  resume)               cmd_resume;;
   screen)               shift; cmd_screen "$@";;
   ipc)                  shift; cmd_ipc "$@";;
   ""|-h|--help|help)

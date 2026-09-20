@@ -70,6 +70,7 @@ omarchy-we menu           # native Omarchy grid picker (falls back to walker/fuz
 omarchy-we next / prev / random
 omarchy-we current        # what's set, and whether it's running
 omarchy-we stop           # stop the live wallpaper, restore a normal background
+omarchy-we resume         # bring it back (stop sticks across theme changes and logins)
 omarchy-we screen                    # per-monitor mapping (which monitor shows what)
 omarchy-we screen DP-3 "rain"        # pin one monitor to a wallpaper; others follow `set`
 omarchy-we screen DP-3 clear         # unpin it
