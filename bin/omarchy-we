@@ -83,8 +83,9 @@ PY
 # Resolve a query (index number | workshop id | title substring) to a workshop id.
 resolve_id() {
   local query="$1"
-  # exact workshop id
-  if [[ "$query" =~ ^[0-9]{6,}$ && -d "$WORKSHOP/$query" ]]; then
+  # exact id (workshop numeric id, or any folder name — e.g. a hand-made
+  # video wallpaper); this is what the picker / ipc hand back
+  if [[ "$query" != *"/"* && -d "$WORKSHOP/$query" ]]; then
     echo "$query"; return 0
   fi
   # 1-based list index
