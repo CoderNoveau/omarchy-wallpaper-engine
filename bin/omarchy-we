@@ -13,6 +13,7 @@
 #   omarchy-we current [--json]     Show the current wallpaper (--json for machine output)
 #   omarchy-we list [--json]        List wallpapers (--json emits id/title/type/preview)
 #   omarchy-we stop                 Stop the live wallpaper and restore a normal Omarchy background
+#   omarchy-we screen [<monitor> <query>|clear]  Per-monitor override (no args: show mapping)
 #   omarchy-we ipc <verb>           Stable interface for bars/plugins: version|picker|entries|current|set|stop
 #
 set -euo pipefail
@@ -21,6 +22,7 @@ set -euo pipefail
 WE_BIN="linux-wallpaperengine"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-we"
 STATE_FILE="$STATE_DIR/current"
+SCREENS_FILE="$STATE_DIR/screens"   # optional per-monitor overrides
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-we"
 PREVIEW_DIR="$CACHE_DIR/previews"       # symlinks: "<label>.<ext>" -> wallpaper preview
 MAP_FILE="$CACHE_DIR/map.tsv"           # "<label>\t<workshop-id>"
@@ -299,6 +301,34 @@ stop_we() {
   pkill -KILL -f "$pat" 2>/dev/null || true
 }
 
+# ---- per-monitor overrides --------------------------------------------------
+# $SCREENS_FILE holds "monitor<TAB>id" lines. Empty/missing means every
+# monitor shows the globally selected wallpaper.
+screen_override() { [[ -f "$SCREENS_FILE" ]] && awk -F'\t' -v m="$1" '$1==m{print $2; exit}' "$SCREENS_FILE"; true; }
+
+cmd_screen() {
+  local mon="${1:-}" query="${2:-}"
+  if [[ -z "$mon" || "$mon" == "list" ]]; then
+    local s
+    for s in $(detect_screens); do
+      local o; o="$(screen_override "$s")"
+      if [[ -n "$o" ]]; then printf '%-10s %s  [%s]\n' "$s" "$(title_of "$o")" "$o"; else printf '%-10s (follows set)\n' "$s"; fi
+    done
+    return 0
+  fi
+  [[ -n "$query" ]] || die "usage: omarchy-we screen <monitor> <index|id|title|clear>"
+  mkdir -p "$STATE_DIR"; touch "$SCREENS_FILE"
+  local tmp; tmp="$(mktemp)"
+  awk -F'\t' -v m="$mon" '$1!=m' "$SCREENS_FILE" > "$tmp"
+  if [[ "$query" != "clear" && "$query" != "--" ]]; then
+    local id; id="$(resolve_id "$query")"
+    [[ -n "$id" ]] || { rm -f "$tmp"; die "no wallpaper matched '$query' (try: omarchy-we list)"; }
+    printf '%s\t%s\n' "$mon" "$id" >> "$tmp"
+  fi
+  mv "$tmp" "$SCREENS_FILE"
+  cmd_launch
+}
+
 launch_we() {
   local id="$1"
   command -v "$WE_BIN" >/dev/null 2>&1 || die "$WE_BIN is not installed (yay -S linux-wallpaperengine-git)"
@@ -314,9 +344,13 @@ launch_we() {
   # output gets the same wallpaper. --scaling binds to the preceding --screen-root.
   local args=(--silent)
   [[ -n "$FPS" ]] && args+=(--fps "$FPS")
-  local s
+  # Per-monitor overrides (omarchy-we screen <monitor> <query>) win over the
+  # global choice; a monitor without one follows `set`.
+  local s sid
   for s in "${screens[@]}"; do
-    args+=(--screen-root "$s" --bg "$WORKSHOP/$id" --scaling "$SCALING")
+    sid="$(screen_override "$s")"
+    [[ -n "$sid" && -d "$WORKSHOP/$sid" ]] || sid="$id"
+    args+=(--screen-root "$s" --bg "$WORKSHOP/$sid" --scaling "$SCALING")
   done
 
   # Detach fully so it survives this shell; wrap with uwsm-app to match Omarchy.
@@ -488,6 +522,7 @@ case "${1:-}" in
   launch)               cmd_launch;;
   current)              shift; [[ "${1:-}" == "--json" ]] && current_json || cmd_current;;
   stop)                 cmd_stop;;
+  screen)               shift; cmd_screen "$@";;
   ipc)                  shift; cmd_ipc "$@";;
   ""|-h|--help|help)
     sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//';;
