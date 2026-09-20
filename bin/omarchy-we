@@ -6,7 +6,7 @@
 # Quickshell background out of the way by pointing it at a transparent image.
 #
 #   omarchy-we list                 List available wallpapers (index / type / title / id)
-#   omarchy-we set <query>          Set a wallpaper by index, workshop id, or title substring
+#   omarchy-we set [--all|--screen <m>] <query>  Set on the focused monitor (default), or all / one
 #   omarchy-we menu                 Pick a wallpaper from a graphical menu
 #   omarchy-we next | prev | random Cycle wallpapers
 #   omarchy-we launch               (Re)launch the saved wallpaper — used by autostart & hooks
@@ -29,6 +29,7 @@ MAP_FILE="$CACHE_DIR/map.tsv"           # "<label>\t<workshop-id>"
 TRANSPARENT_BG="$HOME/.config/omarchy/backgrounds/transparent.png"
 SCALING="${OMARCHY_WE_SCALING:-fill}"    # stretch | fit | fill | default
 FPS="${OMARCHY_WE_FPS:-}"                 # optional frame-rate cap
+SCOPE="${OMARCHY_WE_SCOPE:-focused}"     # focused | all — what `set`/next/prev/random/Omatrix change
 # The picker's last tile stops the live wallpaper. Its label leads with ⏹ (a
 # high codepoint) so it sorts after every wallpaper title in the grid.
 STOP_LABEL="⏹ Stop Live Wallpaper"
@@ -295,6 +296,57 @@ stop_we() { pkill -f "${WE_BIN}[^ ]* .*--screen-root" 2>/dev/null || true; }
 # monitor shows the globally selected wallpaper.
 screen_override() { [[ -f "$SCREENS_FILE" ]] && awk -F'\t' -v m="$1" '$1==m{print $2; exit}' "$SCREENS_FILE"; true; }
 
+focused_screen() { hyprctl monitors -j 2>/dev/null | jq -r 'first(.[] | select(.focused)) | .name' 2>/dev/null; }
+
+# Effective wallpaper for a monitor: its pin, else the global choice.
+effective_id() { local o; o="$(screen_override "$1")"; [[ -n "$o" ]] && echo "$o" || cat "$STATE_FILE" 2>/dev/null || true; }
+
+pin_screen() {  # pin_screen <monitor> <id>   (id empty = unpin)
+  mkdir -p "$STATE_DIR"; touch "$SCREENS_FILE"
+  local tmp; tmp="$(mktemp)"
+  awk -F'\t' -v m="$1" '$1!=m' "$SCREENS_FILE" > "$tmp"
+  [[ -n "${2:-}" ]] && printf '%s\t%s\n' "$1" "$2" >> "$tmp"
+  mv "$tmp" "$SCREENS_FILE"
+}
+
+# apply_id <id> [--all | --screen <monitor>]
+# Default scope ($SCOPE) is the focused monitor: only that output changes and
+# the choice is stored as a pin. --all makes every monitor show it and drops
+# all pins.
+apply_id() {
+  local id="$1" scope="${2:-}" mon="${3:-}"
+  if [[ -z "$scope" ]]; then
+    [[ "$SCOPE" == "all" ]] && scope=--all || scope=--screen
+  fi
+  if [[ "$scope" == "--all" ]]; then
+    rm -f "$SCREENS_FILE"
+    launch_we "$id"
+    echo "Set wallpaper: $(title_of "$id")  [$id]  (all monitors)"
+    notify "Wallpaper: $(title_of "$id")"
+    return 0
+  fi
+  [[ -n "$mon" ]] || mon="$(focused_screen)"
+  if [[ -z "$mon" ]]; then launch_we "$id"; echo "Set wallpaper: $(title_of "$id")  [$id]"; return 0; fi
+  pin_screen "$mon" "$id"
+  cmd_launch
+  echo "Set wallpaper on $mon: $(title_of "$id")  [$id]"
+  notify "$mon: $(title_of "$id")"
+}
+
+# parse_scope "$@" -> sets SCOPE_ARG / SCOPE_MON, and SCOPE_REST to the first
+# remaining (non-option) argument.
+parse_scope() {
+  SCOPE_ARG=""; SCOPE_MON=""; SCOPE_REST=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --all)     SCOPE_ARG=--all; shift;;
+      --screen)  SCOPE_ARG=--screen; SCOPE_MON="${2:-}"; shift 2;;
+      *)         break;;
+    esac
+  done
+  SCOPE_REST="${1:-}"
+}
+
 cmd_screen() {
   local mon="${1:-}" query="${2:-}"
   if [[ -z "$mon" || "$mon" == "list" ]]; then
@@ -306,15 +358,13 @@ cmd_screen() {
     return 0
   fi
   [[ -n "$query" ]] || die "usage: omarchy-we screen <monitor> <index|id|title|clear>"
-  mkdir -p "$STATE_DIR"; touch "$SCREENS_FILE"
-  local tmp; tmp="$(mktemp)"
-  awk -F'\t' -v m="$mon" '$1!=m' "$SCREENS_FILE" > "$tmp"
-  if [[ "$query" != "clear" && "$query" != "--" ]]; then
+  if [[ "$query" == "clear" || "$query" == "--" ]]; then
+    pin_screen "$mon" ""
+  else
     local id; id="$(resolve_id "$query")"
-    [[ -n "$id" ]] || { rm -f "$tmp"; die "no wallpaper matched '$query' (try: omarchy-we list)"; }
-    printf '%s\t%s\n' "$mon" "$id" >> "$tmp"
+    [[ -n "$id" ]] || die "no wallpaper matched '$query' (try: omarchy-we list)"
+    pin_screen "$mon" "$id"
   fi
-  mv "$tmp" "$SCREENS_FILE"
   cmd_launch
 }
 
@@ -360,12 +410,11 @@ cmd_list() {
 }
 
 cmd_set() {
-  local query="${1:-}"; [[ -n "$query" ]] || die "usage: omarchy-we set <index|id|title>"
+  parse_scope "$@"; local query="$SCOPE_REST"
+  [[ -n "$query" ]] || die "usage: omarchy-we set [--all | --screen <monitor>] <index|id|title>"
   local id; id="$(resolve_id "$query")"
   [[ -n "$id" ]] || die "no wallpaper matched '$query' (try: omarchy-we list)"
-  launch_we "$id"
-  notify "Wallpaper: $(title_of "$id")"
-  echo "Set wallpaper: $(title_of "$id")  [$id]"
+  apply_id "$id" "$SCOPE_ARG" "$SCOPE_MON"
 }
 
 cmd_launch() {
@@ -379,10 +428,18 @@ cmd_launch() {
 }
 
 cmd_cycle() {
-  local dir="$1" cur idx total
+  local dir="$1"; shift; local cur idx total
+  parse_scope "$@"
   mapfile -t IDS < <(catalog | cut -f1)
   total=${#IDS[@]}; [[ $total -gt 0 ]] || die "no wallpapers available"
-  cur="$(cat "$STATE_FILE" 2>/dev/null || true)"
+  # Cycle from what the target monitor currently shows (its pin, else global).
+  local mon=""
+  case "${SCOPE_ARG:-$SCOPE}" in
+    --all|all) ;;
+    --screen)  mon="$SCOPE_MON";;
+    *)         mon="$(focused_screen)";;
+  esac
+  if [[ -n "$mon" ]]; then cur="$(effective_id "$mon")"; else cur="$(cat "$STATE_FILE" 2>/dev/null || true)"; fi
   idx=-1
   for i in "${!IDS[@]}"; do [[ "${IDS[$i]}" == "$cur" ]] && idx=$i && break; done
   case "$dir" in
@@ -390,9 +447,7 @@ cmd_cycle() {
     prev)   idx=$(( (idx - 1 + total) % total ));;
     random) idx=$(( RANDOM % total ));;
   esac
-  launch_we "${IDS[$idx]}"
-  notify "Wallpaper: $(title_of "${IDS[$idx]}")"
-  echo "Set wallpaper: $(title_of "${IDS[$idx]}")  [${IDS[$idx]}]"
+  apply_id "${IDS[$idx]}" "$SCOPE_ARG" "$SCOPE_MON"
 }
 
 # Omatrix: the semicircular dial overlay (only available when installed as a
@@ -465,6 +520,8 @@ cmd_current() {
   # Match our own instance (binary + --screen-root), not any process that merely
   # mentions the binary name — same guard as stop_we/current_json.
   pgrep -f "${WE_BIN}[^ ]* .*--screen-root" >/dev/null 2>&1 && echo "Status: running" || echo "Status: not running"
+  [[ -s "$SCREENS_FILE" ]] && { echo "Pinned:"; cmd_screen list | grep -v '(follows set)' | sed 's/^/  /'; }
+  true
 }
 
 cmd_stop() {
@@ -504,10 +561,10 @@ cmd_ipc() {
 # ---- dispatch --------------------------------------------------------------
 case "${1:-}" in
   list)                 shift; [[ "${1:-}" == "--json" ]] && entries_json || cmd_list;;
-  set)                  shift; cmd_set "${1:-}";;
+  set)                  shift; cmd_set "$@";;
   menu)                 cmd_menu;;
   omatrix)              cmd_omatrix;;
-  next|prev|random)     cmd_cycle "$1";;
+  next|prev|random)     cmd_cycle "$@";;
   launch)               cmd_launch;;
   current)              shift; [[ "${1:-}" == "--json" ]] && current_json || cmd_current;;
   stop)                 cmd_stop;;

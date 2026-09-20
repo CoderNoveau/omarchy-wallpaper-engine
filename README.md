@@ -60,9 +60,11 @@ Everything is also available from the CLI:
 
 ```bash
 omarchy-we list           # list your wallpapers:  #  type  title  id
-omarchy-we set 3          # set by list number…
+omarchy-we set 3          # set by list number…  (on the focused monitor)
 omarchy-we set 2555206224 # …by Steam Workshop id…
 omarchy-we set "goku"     # …or by title substring
+omarchy-we set --all 3    # every monitor (and drop per-monitor pins)
+omarchy-we set --screen DP-3 "goku"   # one specific monitor
 omarchy-we omatrix        # open the Omatrix dial (falls back to the grid picker)
 omarchy-we menu           # native Omarchy grid picker (falls back to walker/fuzzel/wofi/rofi)
 omarchy-we next / prev / random
@@ -143,7 +145,7 @@ Fields: `id` = Steam Workshop id · `type` = `scene` \| `video` \| `web` · `pre
 - **Scene** and **video** wallpapers work. **Web** (HTML/JS) wallpapers may not render — `linux-wallpaperengine`'s web support is limited.
 - Live wallpapers use the GPU continuously. On a laptop/iGPU, cap the frame rate (`OMARCHY_WE_FPS=30`) or `omarchy-we stop` on battery.
 - Audio is muted (`--silent`).
-- Multi-monitor: every monitor shows the wallpaper chosen with `set`, unless pinned with `omarchy-we screen <monitor> <wallpaper>` (monitor names as in `hyprctl monitors`). Pins persist in `~/.local/state/omarchy-we/screens` and survive theme changes and logins.
+- Multi-monitor: `set`, `next`/`prev`/`random` and the Omatrix picker change the **focused** monitor only (set `OMARCHY_WE_SCOPE=all` to change every monitor by default, or pass `--all`). A monitor you have never picked for shows the global wallpaper (`set --all`), unless pinned with `omarchy-we screen <monitor> <wallpaper>` (monitor names as in `hyprctl monitors`). Pins persist in `~/.local/state/omarchy-we/screens` and survive theme changes and logins.
 
 ## Coexisting with a custom bar / shell
 
