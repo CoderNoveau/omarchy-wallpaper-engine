@@ -68,6 +68,7 @@ omarchy-we menu           # native Omarchy grid picker (falls back to walker/fuz
 omarchy-we next / prev / random
 omarchy-we current        # what's set, and whether it's running
 omarchy-we stop           # stop the live wallpaper, restore a normal background
+omarchy-we resume         # bring it back (stop sticks across theme changes and logins)
 ```
 
 Your choice is saved to `~/.local/state/omarchy-we/current` and re-applied on every login.
